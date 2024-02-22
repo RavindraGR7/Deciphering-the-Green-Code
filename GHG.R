@@ -1,0 +1,61 @@
+library(dplyr)
+library(tidyr)
+library(lmtest)
+library(sandwich)
+library(ggplot2)
+library(car)
+library(mgcv) 
+library(stargazer)  # Include the stargazer library
+
+# Load the datasets
+ghg_data <- read.csv("Direct_Investment-related_Indicators.csv")
+tax_data <- read.csv("Environmental_Taxes.csv")
+
+# Transform and merge datasets
+ghg_data_long <- pivot_longer(ghg_data, cols = starts_with("F"), names_to = "Year", values_to = "GHG_Emissions")
+tax_data_long <- pivot_longer(tax_data, cols = starts_with("F"), names_to = "Year", values_to = "Environmental_Taxes")
+combined_data <- merge(ghg_data_long, tax_data_long, by = c("Country", "Year"))
+combined_data$Year <- as.numeric(sub("F", "", combined_data$Year))
+
+# Linear Regression Model
+model <- lm(GHG_Emissions ~ Environmental_Taxes + as.factor(Year), data = combined_data)
+
+# Model Diagnostics
+summary(model)
+diagnostics <- bptest(model)
+dwtest(model)
+vif(model)  # Check for multicollinearity
+coeftest(model, vcov = vcovHC(model, type = "HC1"))
+
+# Data Visualization
+ggplot(combined_data, aes(x = Environmental_Taxes, y = GHG_Emissions)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~Year) +
+  theme_minimal() +
+  labs(title = "GHG Emissions vs. Environmental Taxes Over Years")
+
+# GAM Model
+model_gam <- gam(GHG_Emissions ~ s(Environmental_Taxes) + as.factor(Year), data = combined_data)
+summary(model_gam)
+plot(model_gam, page = 1)  # Plot the first spline (Environmental_Taxes)
+
+# Displaying the Models using Stargazer
+stargazer(model, model_gam, type = "text", title = "Regression Results", out = "models_summary.txt")
+
+# Calculate the correlation matrix
+cor_matrix <- cor(combined_data[, sapply(combined_data, is.numeric)], use = "complete.obs")
+
+# Create a heatmap of the correlation matrix
+heatmap_data <- melt(cor_matrix)
+p <- ggplot(heatmap_data, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "white", high = "red", mid = "pink", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1)) +
+  coord_fixed()
+print(p)
+
